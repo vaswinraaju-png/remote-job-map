@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "description": "Zero-data-entry remote job discovery platform",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+"scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "dev": "react-scripts start"
+
   },
   "dependencies": {
     "express": "^4.18.2",
