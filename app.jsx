@@ -63,7 +63,6 @@ export default function JobMap() {
     <div style={{ maxWidth: 1400, margin: '0 auto', padding: 20, fontFamily: 'system-ui' }}>
       <h1 style={{ marginBottom: 30, textAlign: 'center' }}>Remote Job Map</h1>
 
-      {/* Filters */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
         <input
           type="text"
@@ -83,7 +82,6 @@ export default function JobMap() {
         <button onClick={() => { setSearch(''); setJobType(''); setSource(''); setPage(0); }} style={{ padding: '10px 16px', background: '#eee', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer' }}>Reset</button>
       </div>
 
-      {/* Content */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 20 }}>
         <div>
           {loading ? (
@@ -119,7 +117,6 @@ export default function JobMap() {
                 </div>
               ))}
 
-              {/* Pagination */}
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 24, padding: '16px 0' }}>
                 <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} style={{ padding: '8px 16px', cursor: page === 0 ? 'not-allowed' : 'pointer', opacity: page === 0 ? 0.5 : 1 }}>← Previous</button>
                 <span style={{ padding: '8px 0' }}>Page {page + 1} of {totalPages}</span>
@@ -129,7 +126,6 @@ export default function JobMap() {
           )}
         </div>
 
-        {/* Details */}
         <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 8, padding: 20, height: 'fit-content', position: 'sticky', top: 20 }}>
           {selectedJob ? (
             <div>
