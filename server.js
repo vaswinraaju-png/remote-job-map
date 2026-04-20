@@ -9,12 +9,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Database setup
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://localhost/remote_jobs'
 });
 
-// Initialize DB
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS jobs (
@@ -33,7 +31,6 @@ async function initDB() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       is_active BOOLEAN DEFAULT true
     );
-
     CREATE INDEX IF NOT EXISTS idx_company ON jobs(company);
     CREATE INDEX IF NOT EXISTS idx_source ON jobs(source);
     CREATE INDEX IF NOT EXISTS idx_job_type ON jobs(job_type);
@@ -42,12 +39,10 @@ async function initDB() {
   console.log('✓ Database initialized');
 }
 
-// Fetch from RemoteOK API
 async function fetchRemoteOK() {
   try {
     const response = await fetch('https://remoteok.io/api');
     const data = await response.json();
-    
     const jobs = data
       .filter(job => job.job_type !== 'other' && job.company)
       .map(job => ({
@@ -62,7 +57,6 @@ async function fetchRemoteOK() {
         source: 'remoteok',
         posted_at: new Date(job.date_posted * 1000)
       }));
-
     console.log(`✓ Fetched ${jobs.length} jobs from RemoteOK`);
     return jobs;
   } catch (err) {
@@ -71,12 +65,10 @@ async function fetchRemoteOK() {
   }
 }
 
-// Fetch from We Work Remotely RSS
 async function fetchWeWorkRemotely() {
   try {
     const parser = new Parser();
-    const feed = await parser.parseURL('https://weworkremotely.com/categories/remote-web-development.rss');
-    
+    const feed = await parser.parseURL('https://weworkremotely.com/categories/remote-full-stack-programming.rss');
     const jobs = feed.items.map(item => ({
       job_id: `weeworkremotely_${item.guid}`,
       title: item.title,
@@ -89,7 +81,6 @@ async function fetchWeWorkRemotely() {
       source: 'weeworkremotely',
       posted_at: new Date(item.pubDate)
     }));
-
     console.log(`✓ Fetched ${jobs.length} jobs from We Work Remotely`);
     return jobs;
   } catch (err) {
@@ -98,29 +89,25 @@ async function fetchWeWorkRemotely() {
   }
 }
 
-// Upsert jobs into DB
 async function upsertJobs(jobs) {
   let inserted = 0;
   let updated = 0;
-
   for (const job of jobs) {
-    const result = await pool.query(
-      `INSERT INTO jobs (job_id, title, company, description, location, salary, job_type, url, source, posted_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (job_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP, is_active = true
-       RETURNING id`,
-      [job.job_id, job.title, job.company, job.description, job.location, job.salary, job.job_type, job.url, job.source, job.posted_at]
-    );
-    
-    if (result.rows.length) {
-      result.rows[0].id ? updated++ : inserted++;
+    try {
+      await pool.query(
+        `INSERT INTO jobs (job_id, title, company, description, location, salary, job_type, url, source, posted_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (job_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP, is_active = true`,
+        [job.job_id, job.title, job.company, job.description, job.location, job.salary, job.job_type, job.url, job.source, job.posted_at]
+      );
+      updated++;
+    } catch (err) {
+      console.error(`Error inserting job ${job.job_id}:`, err.message);
     }
   }
-
   console.log(`✓ Inserted: ${inserted}, Updated: ${updated}`);
 }
 
-// Mark old jobs as inactive
 async function markOldJobsInactive() {
   const result = await pool.query(
     `UPDATE jobs SET is_active = false WHERE updated_at < NOW() - INTERVAL '30 days'`
@@ -128,26 +115,21 @@ async function markOldJobsInactive() {
   console.log(`✓ Marked ${result.rowCount} old jobs as inactive`);
 }
 
-// Scraper cron (run every 12 hours)
 async function runScraper() {
   console.log('\n📡 Starting job scraper...');
-  
   const remoteOKJobs = await fetchRemoteOK();
   const weWorkRemotelyJobs = await fetchWeWorkRemotely();
-  
   const allJobs = [...remoteOKJobs, ...weWorkRemotelyJobs];
-  
-  await upsertJobs(allJobs);
-  await markOldJobsInactive();
-  
+  if (allJobs.length > 0) {
+    await upsertJobs(allJobs);
+    await markOldJobsInactive();
+  }
   console.log('✓ Scraper complete\n');
 }
 
-// API: Get jobs with filters
 app.get('/api/jobs', async (req, res) => {
   try {
     const { search, job_type, source, limit = 100, offset = 0 } = req.query;
-    
     let query = 'SELECT * FROM jobs WHERE is_active = true';
     const params = [];
     let paramCount = 1;
@@ -157,13 +139,11 @@ app.get('/api/jobs', async (req, res) => {
       params.push(`%${search}%`);
       paramCount++;
     }
-
     if (job_type) {
       query += ` AND job_type = $${paramCount}`;
       params.push(job_type);
       paramCount++;
     }
-
     if (source) {
       query += ` AND source = $${paramCount}`;
       params.push(source);
@@ -174,24 +154,12 @@ app.get('/api/jobs', async (req, res) => {
     params.push(limit, offset);
 
     const result = await pool.query(query, params);
-    
-    // Get total count
     let countQuery = 'SELECT COUNT(*) FROM jobs WHERE is_active = true';
     let countParams = [];
     if (search) {
       countQuery += ` AND (title ILIKE $1 OR company ILIKE $1)`;
       countParams.push(`%${search}%`);
     }
-    if (job_type) {
-      countQuery += countParams.length ? ` AND job_type = $2` : ` AND job_type = $1`;
-      countParams.push(job_type);
-    }
-    if (source) {
-      const nextParam = countParams.length + 1;
-      countQuery += ` AND source = $${nextParam}`;
-      countParams.push(source);
-    }
-
     const countResult = await pool.query(countQuery, countParams);
     const total = parseInt(countResult.rows[0].count);
 
@@ -207,21 +175,6 @@ app.get('/api/jobs', async (req, res) => {
   }
 });
 
-// API: Get jobs by company
-app.get('/api/jobs/company/:company', async (req, res) => {
-  try {
-    const { company } = req.params;
-    const result = await pool.query(
-      'SELECT * FROM jobs WHERE company ILIKE $1 AND is_active = true ORDER BY posted_at DESC',
-      [`%${company}%`]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// API: Get job types
 app.get('/api/job-types', async (req, res) => {
   try {
     const result = await pool.query(
@@ -233,7 +186,6 @@ app.get('/api/job-types', async (req, res) => {
   }
 });
 
-// API: Get sources
 app.get('/api/sources', async (req, res) => {
   try {
     const result = await pool.query(
@@ -245,24 +197,17 @@ app.get('/api/sources', async (req, res) => {
   }
 });
 
-// Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start server
 async function start() {
   await initDB();
-  
   const PORT = process.env.PORT || 3001;
   app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
   });
-
-  // Run scraper on startup
   await runScraper();
-
-  // Run scraper every 12 hours
   setInterval(runScraper, 12 * 60 * 60 * 1000);
 }
 
